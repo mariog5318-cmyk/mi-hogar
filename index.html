@@ -22,7 +22,7 @@
 </main>
 <nav class="nav"><button class="active" data-view="home"><b>⌂</b>Inicio</button><button data-view="tasks"><b>✓</b>Tareas</button><button data-view="calendar"><b>▦</b>Calendario</button><button data-view="summary"><b>◔</b>Resumen</button></nav>
 </div>
-<div class="modal" id="modal"><div class="sheet"><h2 id="modalTitle">Nueva tarea</h2><div class="field"><label>Nombre</label><input id="taskName" maxlength="80" placeholder="Ej. Lavar la ropa"></div><div class="row"><div class="field"><label>Frecuencia</label><select id="taskFreq"><option value="daily">Diaria</option><option value="weekly">Semanal</option><option value="monthly">Mensual</option><option value="once">Una vez</option></select></div><div class="field"><label>Categoría</label><select id="taskCat"><option>🧹 Limpieza</option><option>🍳 Cocina</option><option>👕 Ropa</option><option>🛠️ Mantenimiento</option><option>🛒 Compras</option><option>💳 Pagos</option><option>📦 Otros</option></select></div></div><div class="switch"><span>Recordatorio</span><input type="checkbox" id="taskReminder"></div><div class="field" id="timeWrap" style="display:none"><label>Hora</label><input id="taskTime" type="time" value="19:00"></div><div class="actions"><button class="secondary" onclick="closeTask()">Cancelar</button><button class="primary" onclick="saveTask()">Guardar</button></div><div class="actions" id="deleteRow" style="display:none"><button class="danger" onclick="deleteCurrent()">Eliminar tarea</button></div></div></div>
+<div class="modal" id="modal"><div class="sheet"><h2 id="modalTitle">Nueva tarea</h2><div class="field"><label>Nombre</label><input id="taskName" maxlength="80" placeholder="Ej. Lavar la ropa"></div><div class="row"><div class="field"><label>Frecuencia</label><select id="taskFreq" onchange="toggleDateFields()"><option value="daily">Diaria</option><option value="weekly">Semanal</option><option value="monthly">Mensual</option><option value="once">Fecha específica</option></select></div><div class="field"><label>Categoría</label><select id="taskCat"><option>🧹 Limpieza</option><option>🍳 Cocina</option><option>👕 Ropa</option><option>🛠️ Mantenimiento</option><option>🛒 Compras</option><option>💳 Pagos</option><option>📦 Otros</option></select></div></div><div class="field" id="dateWrap" style="display:none"><label>Fecha</label><input id="taskDate" type="date"></div><div class="field"><label>Hora</label><input id="taskTime" type="time" value="19:00"></div><div class="field"><label>Recordatorio</label><select id="taskReminder"><option value="none">Sin recordatorio</option><option value="at">A la hora de la tarea</option><option value="1d">1 día antes</option><option value="3d">3 días antes</option><option value="7d">1 semana antes</option></select></div><div class="actions"><button class="secondary" onclick="closeTask()">Cancelar</button><button class="primary" onclick="saveTask()">Guardar</button></div><div class="actions" id="deleteRow" style="display:none"><button class="danger" onclick="deleteCurrent()">Eliminar tarea</button></div></div></div>
 <div class="toast" id="toast"></div>
 <script>
 const KEY='mi_hogar_v2';
@@ -39,8 +39,16 @@ function freqLabel(f){return {daily:'Diaria',weekly:'Semanal',monthly:'Mensual',
 function due(task,d=new Date()){
  if(!task.enabled)return false; if(task.freq==='daily')return true;
  if(task.freq==='weekly')return d.getDay()===1;
- if(task.freq==='monthly')return d.getDate()===1;
+ if(task.freq==='monthly')return d.getDate()===(task.monthDay||1);
  if(task.freq==='once')return task.onceDate===iso(d);
+}
+function reminderLabel(t){return {none:'',at:' · 🔔 a la hora','1d':' · 🔔 1 día antes','3d':' · 🔔 3 días antes','7d':' · 🔔 1 semana antes'}[t.reminder||'none']}
+function reminderMinutes(t){return ({none:null,at:0,'1d':1440,'3d':4320,'7d':10080}[t.reminder||'none'])}
+function taskDateTime(t){
+ const ds=t.freq==='once'?t.onceDate:today();
+ if(!ds)return null;
+ const parts=(t.time||'19:00').split(':').map(Number);
+ return new Date(ds+'T'+(t.time||'19:00')+':00');
 }
 function key(task,d=today()){return task.id+'_'+d}
 function isDone(task,d=today()){return !!state.checks[key(task,d)]}
@@ -53,26 +61,92 @@ function render(){
  document.getElementById('todayTasks').innerHTML=taskHTML(ts);
  renderTasks();renderCalendar();renderSummary();
 }
-function taskHTML(ts){if(!ts.length)return '<div class="empty">No hay tareas programadas para este día.</div>';return ts.map(t=>`<div class="task ${isDone(t)?'done':''}"><button class="check" onclick="toggle(getTask('${t.id}'))"></button><div class="name">${esc(t.name)}<div class="meta">${t.cat} · ${freqLabel(t.freq)}${t.reminder?' · 🔔 '+t.time:''}</div></div><button class="more" onclick="openTask('${t.id}')">⋯</button></div>`).join('')}
-function renderTasks(){const fs=['all','daily','weekly','monthly','once'];document.getElementById('freqFilters').innerHTML=fs.map(f=>`<button class="chip ${filter===f?'active':''}" onclick="filter='${f}';renderTasks()">${f==='all'?'Todas':freqLabel(f)}</button>`).join('');let ts=state.tasks.filter(t=>t.enabled&&(filter==='all'||t.freq===filter));document.getElementById('allTasks').innerHTML=ts.length?ts.map(t=>`<div class="task"><div style="font-size:22px">${t.cat.split(' ')[0]}</div><div class="name">${esc(t.name)}<div class="meta">${freqLabel(t.freq)} · ${t.builtIn?'Incluida':'Personalizada'}${t.reminder?' · 🔔 '+t.time:''}</div></div><button class="more" onclick="openTask('${t.id}')">✎</button></div>`).join(''):'<div class="empty">No hay tareas con este filtro.</div>'}
-function renderCalendar(){const y=calDate.getFullYear(),m=calDate.getMonth();document.getElementById('monthTitle').textContent=new Intl.DateTimeFormat('es-CO',{month:'long',year:'numeric'}).format(calDate);const first=new Date(y,m,1),start=(first.getDay()+6)%7,days=new Date(y,m+1,0).getDate();let h=['L','M','X','J','V','S','D'].map(x=>`<div class="dow">${x}</div>`).join('');for(let i=0;i<start;i++)h+='<div></div>';for(let day=1;day<=days;day++){const d=new Date(y,m,day),s=iso(d), has=eligible(d).some(t=>isDone(t,s)), td=s===today();h+=`<button class="day ${has?'has':''} ${td?'today':''}" onclick="selectDate('${s}')">${day}${has?'<span class="dot"></span>':''}</button>`}document.getElementById('cal').innerHTML=h;showSelected()}
+function taskHTML(ts){if(!ts.length)return '<div class="empty">No hay tareas programadas para este día.</div>';return ts.map(t=>`<div class="task ${isDone(t)?'done':''}"><button class="check" onclick="toggle(getTask('${t.id}'))"></button><div class="name">${esc(t.name)}<div class="meta">${t.cat} · ${freqLabel(t.freq)}${reminderLabel(t)}${t.freq==='once'&&t.onceDate?' · 📅 '+new Intl.DateTimeFormat('es-CO',{day:'numeric',month:'short',year:'numeric'}).format(new Date(t.onceDate+'T12:00:00')):''}</div></div><button class="more" onclick="openTask('${t.id}')">⋯</button></div>`).join('')}
+function renderTasks(){const fs=['all','daily','weekly','monthly','once'];document.getElementById('freqFilters').innerHTML=fs.map(f=>`<button class="chip ${filter===f?'active':''}" onclick="filter='${f}';renderTasks()">${f==='all'?'Todas':freqLabel(f)}</button>`).join('');let ts=state.tasks.filter(t=>t.enabled&&(filter==='all'||t.freq===filter));document.getElementById('allTasks').innerHTML=ts.length?ts.map(t=>`<div class="task"><div style="font-size:22px">${t.cat.split(' ')[0]}</div><div class="name">${esc(t.name)}<div class="meta">${freqLabel(t.freq)} · ${t.builtIn?'Incluida':'Personalizada'}${reminderLabel(t)}${t.freq==='once'&&t.onceDate?' · 📅 '+new Intl.DateTimeFormat('es-CO',{day:'numeric',month:'short',year:'numeric'}).format(new Date(t.onceDate+'T12:00:00')):''}</div></div><button class="more" onclick="openTask('${t.id}')">✎</button></div>`).join(''):'<div class="empty">No hay tareas con este filtro.</div>'}
+function renderCalendar(){const y=calDate.getFullYear(),m=calDate.getMonth();document.getElementById('monthTitle').textContent=new Intl.DateTimeFormat('es-CO',{month:'long',year:'numeric'}).format(calDate);const first=new Date(y,m,1),start=(first.getDay()+6)%7,days=new Date(y,m+1,0).getDate();let h=['L','M','X','J','V','S','D'].map(x=>`<div class="dow">${x}</div>`).join('');for(let i=0;i<start;i++)h+='<div></div>';for(let day=1;day<=days;day++){const d=new Date(y,m,day),s=iso(d), has=eligible(d).length>0, td=s===today();h+=`<button class="day ${has?'has':''} ${td?'today':''}" onclick="selectDate('${s}')">${day}${has?'<span class="dot"></span>':''}</button>`}document.getElementById('cal').innerHTML=h;showSelected()}
 function selectDate(s){selectedDate=new Date(s+'T12:00:00');showSelected()}
 function showSelected(){const s=iso(selectedDate),ts=eligible(selectedDate);document.getElementById('selectedDateTitle').textContent=dateLabel(selectedDate);document.getElementById('historyTasks').innerHTML=ts.length?ts.map(t=>`${isDone(t,s)?'✓':'○'} ${esc(t.name)}`).join('<br>'):'Sin tareas programadas.'}
 function renderSummary(){const prefix=new Date().toISOString().slice(0,7);const keys=Object.keys(state.checks).filter(k=>k.endsWith('_'+today())||k.includes('_'+prefix));document.getElementById('monthDone').textContent=keys.filter(k=>state.checks[k]).length;const active=new Set(Object.keys(state.checks).filter(k=>state.checks[k]).map(k=>k.split('_').pop()).filter(s=>s.startsWith(prefix)));document.getElementById('activeDays').textContent=active.size}
 function streak(){let n=0,d=new Date();for(let i=0;i<366;i++){const ts=eligible(d);if(ts.length&&ts.every(t=>isDone(t,iso(d)))){n++;d.setDate(d.getDate()-1)}else break}return n}
 function getTask(id){return state.tasks.find(t=>t.id===id)}
-function openTask(id){editId=id||null;const t=id?getTask(id):{name:'',freq:'daily',cat:'🧹 Limpieza',reminder:false,time:'19:00'};document.getElementById('modalTitle').textContent=id?'Editar tarea':'Nueva tarea';document.getElementById('taskName').value=t.name;document.getElementById('taskFreq').value=t.freq;document.getElementById('taskCat').value=t.cat;document.getElementById('taskReminder').checked=!!t.reminder;document.getElementById('taskTime').value=t.time||'19:00';document.getElementById('deleteRow').style.display=id?'flex':'none';document.getElementById('modal').classList.add('open');toggleTime()}
+function openTask(id){
+ editId=id||null;
+ const t=id?getTask(id):{name:'',freq:'daily',cat:'🧹 Limpieza',reminder:'none',time:'19:00',onceDate:today(),monthDay:1};
+ document.getElementById('modalTitle').textContent=id?'Editar tarea':'Nueva tarea';
+ document.getElementById('taskName').value=t.name;
+ document.getElementById('taskFreq').value=t.freq;
+ document.getElementById('taskCat').value=t.cat;
+ document.getElementById('taskReminder').value=t.reminder||'none';
+ document.getElementById('taskTime').value=t.time||'19:00';
+ document.getElementById('taskDate').value=t.onceDate||today();
+ document.getElementById('deleteRow').style.display=id?'flex':'none';
+ document.getElementById('modal').classList.add('open');
+ toggleDateFields();
+}
 function closeTask(){document.getElementById('modal').classList.remove('open')}
-function toggleTime(){document.getElementById('timeWrap').style.display=document.getElementById('taskReminder').checked?'block':'none'}
-document.getElementById('taskReminder').addEventListener('change',toggleTime);
-function saveTask(){const name=document.getElementById('taskName').value.trim();if(!name)return toast('Escribe un nombre');const data={name,freq:document.getElementById('taskFreq').value,cat:document.getElementById('taskCat').value,reminder:document.getElementById('taskReminder').checked,time:document.getElementById('taskTime').value,enabled:true};if(editId){Object.assign(getTask(editId),data)}else{state.tasks.push({id:'c'+Date.now(),...data,builtIn:false})}save();closeTask();render();toast('Tarea guardada')}
+function toggleDateFields(){
+ const once=document.getElementById('taskFreq').value==='once';
+ document.getElementById('dateWrap').style.display=once?'block':'none';
+}
+function saveTask(){
+ const name=document.getElementById('taskName').value.trim();
+ const freq=document.getElementById('taskFreq').value;
+ if(!name)return toast('Escribe un nombre');
+ if(freq==='once'&&!document.getElementById('taskDate').value)return toast('Elige una fecha');
+ const data={
+  name,
+  freq,
+  cat:document.getElementById('taskCat').value,
+  reminder:document.getElementById('taskReminder').value,
+  time:document.getElementById('taskTime').value||'19:00',
+  onceDate:freq==='once'?document.getElementById('taskDate').value:null,
+  monthDay:1,
+  enabled:true
+ };
+ if(editId){Object.assign(getTask(editId),data)}
+ else{state.tasks.push({id:'c'+Date.now(),...data,builtIn:false})}
+ save();closeTask();render();checkReminders();toast('Tarea guardada')
+}
 function deleteCurrent(){if(!editId)return;const t=getTask(editId);if(t.builtIn){t.enabled=false;toast('Tarea incluida desactivada')}else{state.tasks=state.tasks.filter(x=>x.id!==editId);toast('Tarea eliminada')}save();closeTask();render()}
 function changeMonth(n){calDate=new Date(calDate.getFullYear(),calDate.getMonth()+n,1);renderCalendar()}
 function goToday(){calDate=new Date();selectedDate=new Date();renderCalendar()}
 function esc(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function toast(s){const el=document.getElementById('toast');el.textContent=s;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),1800)}
+async function showAppNotification(title,body,tag){
+ if(!('Notification'in window)||Notification.permission!=='granted')return;
+ try{
+  const reg=await navigator.serviceWorker?.ready;
+  if(reg) await reg.showNotification(title,{body,tag});
+  else if(!/iPhone|iPad|iPod/i.test(navigator.userAgent)) new Notification(title,{body});
+ }catch(e){}
+}
+function checkReminders(){
+ const now=new Date();
+ state.tasks.filter(t=>t.enabled&&t.reminder&&t.reminder!=='none').forEach(t=>{
+  let dueAt=taskDateTime(t);
+  if(!dueAt)return;
+  if(t.freq!=='once'){
+   const d=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+   if(!due(t,d))return;
+   dueAt=new Date(d.getFullYear(),d.getMonth(),d.getDate(),...(t.time||'19:00').split(':').map(Number));
+  }
+  const mins=reminderMinutes(t);
+  const notifyAt=new Date(dueAt.getTime()-(mins||0)*60000);
+  const diff=Math.abs(now-notifyAt);
+  const key='reminded_'+t.id+'_'+notifyAt.toISOString().slice(0,16);
+  if(diff<65000&&!localStorage.getItem(key)){
+   localStorage.setItem(key,'1');
+   const when=mins?('Falta '+(mins>=1440?(mins/1440)+' día(s)':(mins/60)+' hora(s)')):'Es ahora';
+   showAppNotification('Mi Hogar: '+t.name,when+' · '+(t.time||'19:00'),key);
+  }
+ });
+}
+setInterval(checkReminders,30000);
+window.addEventListener('focus',checkReminders);
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));document.getElementById(b.dataset.view).classList.add('active');render()});
-document.getElementById('notifyBtn').onclick=async()=>{if(!('Notification'in window))return toast('Este navegador no admite notificaciones');const p=await Notification.requestPermission();toast(p==='granted'?'Notificaciones activadas':'Permiso no concedido')};
-if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});render();
+document.getElementById('notifyBtn').onclick=async()=>{if(!('Notification'in window))return toast('Este navegador no admite notificaciones');const p=await Notification.requestPermission();toast(p==='granted'?'Notificaciones activadas 🔔':'Permiso no concedido');if(p==='granted')checkReminders()};
+if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+render();
+checkReminders();
 </script>
 </body></html>
